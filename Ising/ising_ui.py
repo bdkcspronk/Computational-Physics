@@ -1,12 +1,13 @@
 import tkinter as tk
 from tkinter import ttk
 import threading
-import subprocess
 import os
 
 import tkinter.filedialog as filedialog
 import matplotlib.pyplot as plt
 import ising_plots as plots
+import ising_sim
+import ising_viz
 
 # ------------------------
 # Globals
@@ -100,7 +101,7 @@ def get_snapshot_keys(file_path):
 # Visualization function
 # ------------------------
 def visualize_snapshots(file_path, key):
-    import tempfile, subprocess, numpy as np, os
+    import tempfile, numpy as np, os
     data = np.load(file_path, allow_pickle=True)
 
     # Extract only the snapshots for this key
@@ -119,8 +120,12 @@ def visualize_snapshots(file_path, key):
             save_dict[k] = data[k]
     np.savez_compressed(tmp_file, **save_dict)
 
-    # Launch viz
-    subprocess.Popen(f"python ising_viz.py --open {tmp_dir}", shell=True)
+    # Launch viz directly (no subprocess, better for executable builds)
+    threading.Thread(
+        target=ising_viz.run_visualizer,
+        args=(tmp_dir,),
+        daemon=True
+    ).start()
 
 def build_viz_buttons(file_path, parent_frame):
     # Clear only previous buttons, keep label(s)
@@ -149,53 +154,40 @@ def run_simulation_thread(params):
     global stop_flag, simulation_done
     stop_flag = False
     simulation_done = False
-    global cpu_workers 
-    cpu_workers= None
+    global cpu_workers
+    cpu_workers = None
 
     output_dir = params["--output"]
     os.makedirs(output_dir, exist_ok=True)
 
     current_run = 0
-    root.after(0, lambda: set_temp_state(0, "running"))
 
-    cmd = ["python","-u", "ising_sim.py"]
-    for k, v in params.items():
-        cmd.append(f"{k}={v}")
+    def handle_progress(event, value):
+        nonlocal current_run
+        global cpu_workers
 
-    with subprocess.Popen(cmd,
-                        stdout=subprocess.PIPE,
-                        stderr=subprocess.STDOUT,
-                        text=True) as proc:
-        for line in proc.stdout:
-            print(line, end="")
+        if event == "workers":
+            cpu_workers = int(value)
+            for i in range(min(cpu_workers, len(temp_widgets))):
+                root.after(0, lambda i=i: set_temp_state(i, "running"))
+            return
 
-            if cpu_workers is None and line.startswith("Using ") and "CPU threads" in line:
-                cpu_workers = int(line.split()[1])
-                # now mark the first batch as running
-                for i in range(min(cpu_workers, len(temp_widgets))):
-                    root.after(0, lambda i=i: set_temp_state(i, "running"))
-                continue
+        if event == "finished_temp":
+            finished = current_run
+            current_run += 1
 
+            def update():
+                set_temp_state(finished, "done")
 
-            if line.startswith("Finished T="):
-                finished = current_run
-                current_run += 1
+                next_idx = finished + (cpu_workers or 1)
+                if next_idx < len(temp_widgets):
+                    set_temp_state(next_idx, "running")
 
-                def update():
-                    set_temp_state(finished, "done")
+                run_var.set(f"Completed: {current_run}/{len(temp_widgets)}")
 
-                    # start next batch if available
-                    next_idx = finished + cpu_workers
-                    if next_idx < len(temp_widgets):
-                        set_temp_state(next_idx, "running")
+            root.after(0, update)
 
-                    run_var.set(f"Completed: {current_run}/{len(temp_widgets)}")
-
-                root.after(0, update)
-
-            if stop_flag:
-                proc.terminate()
-                break
+    ising_sim.run_from_params(params, progress_callback=handle_progress)
 
     def finish_ui():
         for i in range(len(temp_widgets)):
@@ -268,7 +260,11 @@ def stop_simulation():
 
 def visualize_simulation():
     if simulation_done:
-        subprocess.run(f"python ising_viz.py --open sim_data_ui", shell=True)
+        threading.Thread(
+            target=ising_viz.run_visualizer,
+            args=("sim_data_ui",),
+            daemon=True
+        ).start()
 
 # ------------------------
 # Build GUI
