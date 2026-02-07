@@ -4,10 +4,19 @@ import matplotlib.cm as cm
 import seaborn as sns
 import os
 
-directory = os.path.dirname(os.path.abspath(__file__))
-os.chdir(directory)
-
 sns.set_style("whitegrid")
+
+
+def get_runtime_base_dir():
+    import sys
+    if getattr(sys, "frozen", False):
+        return os.path.dirname(os.path.abspath(sys.executable))
+    return os.path.dirname(os.path.abspath(__file__))
+
+
+def get_default_snapshot_file():
+    return os.path.join(get_runtime_base_dir(), "ising_sim", "snapshots.npz")
+
 
 # ------------------------
 # Load snapshots
@@ -157,7 +166,7 @@ def plot_thermodynamics(all_snapshots):
 # Standalone test
 # ------------------------
 if __name__ == "__main__":
-    file_path = os.path.join("sim_data_ui", "snapshots.npz")
+    file_path = get_default_snapshot_file()
     all_snapshots, _ = load_snapshots(file_path)
 
     if len(all_snapshots) > 1:
