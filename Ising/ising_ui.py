@@ -1,5 +1,6 @@
 import tkinter as tk
 from tkinter import ttk
+import multiprocessing
 import threading
 import os
 import ising_plots as plots
@@ -582,4 +583,5 @@ def build_gui():
 # Run GUI
 # ------------------------
 if __name__ == "__main__":
+    multiprocessing.freeze_support()
     build_gui()
