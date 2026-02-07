@@ -120,7 +120,7 @@ def run_temp(T, args):
 # -------------------------------
 # MAIN SIMULATION
 # -------------------------------
-def main():
+def build_parser():
     parser = argparse.ArgumentParser(description="3D Ising Model Simulation")
     parser.add_argument("--H", type=int, default=20)
     parser.add_argument("--W", type=int, default=20)
@@ -153,7 +153,10 @@ def main():
     parser.add_argument("--seed", type=int, default=None, help="Random seed for reproducibility")
     parser.add_argument("--output", type=str, default="sim_data_ui")
 
-    args = parser.parse_args()
+    return parser
+
+
+def run_simulation(args, progress_callback=None):
 
     # Create output directory
     if not os.path.exists(args.output):
@@ -170,6 +173,8 @@ def main():
 
     n_workers = os.cpu_count() or 1
     print(f"Using {n_workers} CPU threads")
+    if progress_callback is not None:
+        progress_callback("workers", n_workers)
 
     all_snapshots = {}
 
@@ -181,6 +186,8 @@ def main():
             T, snapshots = future.result()
             all_snapshots[str(T)] = snapshots
             print(f"Finished T={T:.4f}")
+            if progress_callback is not None:
+                progress_callback("finished_temp", T)
 
     # Combine all temps into final file
     save_path = os.path.join(args.output, "snapshots.npz")
@@ -204,6 +211,20 @@ def main():
 
     np.savez_compressed(save_path, **save_dict)
     print(f"\nAll temperatures complete. Combined snapshots saved to '{save_path}'.")
+    return save_path
+
+
+def run_from_params(params, progress_callback=None):
+    parser = build_parser()
+    cli_args = [f"{key}={value}" for key, value in params.items()]
+    args = parser.parse_args(cli_args)
+    return run_simulation(args, progress_callback=progress_callback)
+
+
+def main():
+    parser = build_parser()
+    args = parser.parse_args()
+    run_simulation(args)
 
 if __name__ == "__main__":
     main()

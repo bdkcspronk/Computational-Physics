@@ -392,15 +392,10 @@ class IsingVisualizer3D:
 
         pygame.display.flip()
 
-# ================================
-# MAIN LOOP
-# ================================
-def main():
-    parser = argparse.ArgumentParser(description="3D Ising Model Simulation")
-    parser.add_argument("--open", type=str, default="sim_data", help="Directory")
-    args = parser.parse_args()
 
-    data = np.load(args.open + "/snapshots.npz", allow_pickle=True)
+
+def load_snapshots(open_dir):
+    data = np.load(os.path.join(open_dir, "snapshots.npz"), allow_pickle=True)
 
     # --- handle multi-temperature storage ---
     if "all_snapshots" in data.files:
@@ -422,6 +417,11 @@ def main():
         else:                      # array
             metadata[key] = arr
 
+    return snapshots, metadata
+
+
+def run_visualizer(open_dir):
+    snapshots, metadata = load_snapshots(open_dir)
     viz = IsingVisualizer3D(snapshots, metadata)
 
     running = True
@@ -446,6 +446,15 @@ def main():
         clock.tick(60)
 
     pygame.quit()
+
+# ================================
+# MAIN LOOP
+# ================================
+def main():
+    parser = argparse.ArgumentParser(description="3D Ising Model Simulation")
+    parser.add_argument("--open", type=str, default="sim_data", help="Directory")
+    args = parser.parse_args()
+    run_visualizer(args.open)
 
 if __name__=="__main__":
     main()
