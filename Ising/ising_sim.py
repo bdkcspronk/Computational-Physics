@@ -1,12 +1,23 @@
 # ising_sim.py
 import numpy as np
+import sys
 import random
 import os
 import argparse
 from concurrent.futures import ProcessPoolExecutor, as_completed
 
-directory = os.path.dirname(os.path.abspath(__file__))
-os.chdir(directory)
+
+def get_runtime_base_dir():
+    if getattr(sys, "frozen", False):
+        return os.path.dirname(os.path.abspath(sys.executable))
+    return os.path.dirname(os.path.abspath(__file__))
+
+
+def resolve_output_dir(output_dir):
+    if os.path.isabs(output_dir):
+        return output_dir
+    return os.path.join(get_runtime_base_dir(), output_dir)
+
 
 # ================================
 # ISING MODEL
@@ -151,13 +162,14 @@ def build_parser():
     parser.add_argument("--fully_mag_limit", type=float, default=1.0)
 
     parser.add_argument("--seed", type=int, default=None, help="Random seed for reproducibility")
-    parser.add_argument("--output", type=str, default="sim_data_ui")
+    parser.add_argument("--output", type=str, default="ising_sim")
 
     return parser
 
 
 def run_simulation(args, progress_callback=None):
-
+    args.output = resolve_output_dir(args.output)
+    
     # Create output directory
     if not os.path.exists(args.output):
         os.makedirs(args.output)

@@ -21,10 +21,17 @@ temp_widgets = []
 temps = []
 temp_bar_frame = None
 
-directory = os.path.dirname(os.path.abspath(__file__))
-os.chdir(directory)
+def get_runtime_base_dir():
+    import sys
+    if getattr(sys, "frozen", False):
+        return os.path.dirname(os.path.abspath(sys.executable))
+    return os.path.dirname(os.path.abspath(__file__))
 
-file_path = os.path.join("sim_data_ui", "snapshots.npz")
+def get_output_dir(folder_name="ising_sim"):
+    return os.path.join(get_runtime_base_dir(), folder_name)
+
+file_path = os.path.join(get_output_dir(), "snapshots.npz")
+
 
 # ------------------------
 # Utility functions 
@@ -228,7 +235,7 @@ def start_simulation(entries):
         "--stop_fully_mag": "ON" if entries["Stop if fully magnetized (ON/OFF)"].get() else "OFF",
         "--fully_mag_limit": entries["Fully magnetization limit"].get(),
         "--save": entries["Save Every N Steps"].get(),
-        "--output": "sim_data_ui"
+        "--output": get_output_dir()
     }
 
     if entries["Random Seed (optional)"].get().strip():
@@ -260,7 +267,7 @@ def visualize_simulation():
     if simulation_done:
         threading.Thread(
             target=ising_viz.run_visualizer,
-            args=("sim_data_ui",),
+            args=(get_output_dir(),),
             daemon=True
         ).start()
 

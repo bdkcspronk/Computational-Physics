@@ -1,6 +1,7 @@
 # ising_viz.py
 
 import os
+import sys
 # Hide pygame support prompt before importing
 os.environ["PYGAME_HIDE_SUPPORT_PROMPT"] = "1"
 
@@ -24,9 +25,6 @@ import math
 import time
 import argparse
 
-directory = os.path.dirname(os.path.abspath(__file__))
-os.chdir(directory)
-
 # ================================
 # Visualization parameters
 # ================================
@@ -38,6 +36,18 @@ COLOR_SPIN_DOWN = (0.3, 0.5, 0.5)
 COLOR_BACKGROUND = (0.1, 0.1, 0.1, 1.0)
 
 PLAYBACK_FPS = 50  # how fast to advance snapshots per second
+
+def get_runtime_base_dir():
+    if getattr(sys, "frozen", False):
+        return os.path.dirname(os.path.abspath(sys.executable))
+    return os.path.dirname(os.path.abspath(__file__))
+
+
+def resolve_open_dir(open_dir):
+    if os.path.isabs(open_dir):
+        return open_dir
+    return os.path.join(get_runtime_base_dir(), open_dir)
+
 
 # ================================
 # OpenGL visualizer
@@ -421,6 +431,7 @@ def load_snapshots(open_dir):
 
 
 def run_visualizer(open_dir):
+    open_dir = resolve_open_dir(open_dir)
     snapshots, metadata = load_snapshots(open_dir)
     viz = IsingVisualizer3D(snapshots, metadata)
 
@@ -452,7 +463,7 @@ def run_visualizer(open_dir):
 # ================================
 def main():
     parser = argparse.ArgumentParser(description="3D Ising Model Simulation")
-    parser.add_argument("--open", type=str, default="sim_data", help="Directory")
+    parser.add_argument("--open", type=str, default="ising_sim", help="Directory")
     args = parser.parse_args()
     run_visualizer(args.open)
 
