@@ -1,22 +1,35 @@
 # ising_sim.py
 import numpy as np
-import sys
 import random
 import os
 import argparse
-from concurrent.futures import ProcessPoolExecutor, as_completed
+import multiprocessing
+import threading
+from concurrent.futures import ProcessPoolExecutor, wait, FIRST_COMPLETED, CancelledError
+from ising_initialization import ensure_open_dir
 
 
-def get_runtime_base_dir():
-    if getattr(sys, "frozen", False):
-        return os.path.dirname(os.path.abspath(sys.executable))
-    return os.path.dirname(os.path.abspath(__file__))
+_stop_requested_event = threading.Event()
+_current_mp_stop_event = None
 
 
-def resolve_output_dir(output_dir):
-    if os.path.isabs(output_dir):
-        return output_dir
-    return os.path.join(get_runtime_base_dir(), output_dir)
+def request_stop():
+    global _current_mp_stop_event
+    _stop_requested_event.set()
+    if _current_mp_stop_event is not None:
+        _current_mp_stop_event.set()
+
+
+def clear_stop_request():
+    global _current_mp_stop_event
+    _stop_requested_event.clear()
+    _current_mp_stop_event = None
+
+
+def is_stop_requested():
+    return _stop_requested_event.is_set()
+
+
 
 
 # ================================
@@ -83,16 +96,21 @@ class IsingModel3D:
 # -------------------------------
 # Function to run one temperature
 # -------------------------------
-def run_temp(T, args):
+def run_temp(T, args, stop_event=None):
     model = IsingModel3D(args.H, args.W, args.L, start_T=T, target_T=args.target_T,
                          dT=args.dT, steps_dT=args.steps_dT, j_coupling=args.J, external_field=args.B)
     total_steps = int(args.steps * (1 + args.relax_perc / 100.0))
     relax_steps = total_steps - args.steps
     snapshots = []
-    stop_sim = False
 
     for step in range(1, total_steps + 1):
+        if stop_event is not None and stop_event.is_set():
+            break
+
         model.run_steps(1)
+
+        if stop_event is not None and stop_event.is_set():
+            break
 
         if step > relax_steps:
             if args.dT != 0.0 and model.temperature != model.target_T and args.steps_dT > 0 and step % args.steps_dT == 0:
@@ -114,7 +132,6 @@ def run_temp(T, args):
                     recent_mags = [s['magnetization'] for s in snapshots[-args.nochange_X:]]
                     avg_dM = np.mean(np.abs(np.diff(recent_mags)))
                     if avg_dM < args.dM_limit:
-                        stop_sim = True
                         print(f"T={T:.4f} stopped early: reached steady state (avg_dM={avg_dM:.2e}).")
                         break
 
@@ -167,12 +184,8 @@ def build_parser():
     return parser
 
 
-def run_simulation(args, progress_callback=None):
-    args.output = resolve_output_dir(args.output)
-    
-    # Create output directory
-    if not os.path.exists(args.output):
-        os.makedirs(args.output)
+def run_simulation(args, progress_callback=None, stop_requested=None):
+    args.output = ensure_open_dir(args.output)
 
     if args.seed is not None:
         np.random.seed(args.seed)
@@ -189,17 +202,45 @@ def run_simulation(args, progress_callback=None):
         progress_callback("workers", n_workers)
 
     all_snapshots = {}
+    stopped_early = False
+
+    clear_stop_request()
 
     # Run temps in parallel
-    with ProcessPoolExecutor() as executor:
-        future_to_T = {executor.submit(run_temp, T, args): T for T in temperatures}
+    with multiprocessing.Manager() as manager:
+        mp_stop_event = manager.Event()
 
-        for future in as_completed(future_to_T):
-            T, snapshots = future.result()
-            all_snapshots[str(T)] = snapshots
-            print(f"Finished T={T:.4f}")
-            if progress_callback is not None:
-                progress_callback("finished_temp", T)
+        global _current_mp_stop_event
+        _current_mp_stop_event = mp_stop_event
+
+        with ProcessPoolExecutor() as executor:
+            pending = {executor.submit(run_temp, T, args, mp_stop_event): T for T in temperatures}
+
+            while pending:
+                if is_stop_requested() or (stop_requested is not None and stop_requested()):
+                    request_stop()
+                    stopped_early = True
+
+                done, pending = wait(pending, timeout=0.2, return_when=FIRST_COMPLETED)
+
+                for future in done:
+                    try:
+                        T, snapshots = future.result()
+                    except CancelledError:
+                        continue
+
+                    all_snapshots[str(T)] = snapshots
+                    print(f"Finished T={T:.4f}")
+                    if progress_callback is not None:
+                        progress_callback("finished_temp", T)
+
+                if is_stop_requested() and pending:
+                    for future in list(pending):
+                        future.cancel()
+
+            executor.shutdown(wait=False, cancel_futures=True)
+
+    _current_mp_stop_event = None
 
     # Combine all temps into final file
     save_path = os.path.join(args.output, "snapshots.npz")
@@ -218,19 +259,23 @@ def run_simulation(args, progress_callback=None):
         'nochange_X': args.nochange_X,
         'stop_fully_mag': args.stop_fully_mag,
         'fully_mag_limit': args.fully_mag_limit,
-        'seed': args.seed
+        'seed': args.seed,
+        'stopped_early': stopped_early
     })
 
     np.savez_compressed(save_path, **save_dict)
-    print(f"\nAll temperatures complete. Combined snapshots saved to '{save_path}'.")
+    if stopped_early:
+        print(f"\nSimulation stopped early. Partial snapshots saved to '{save_path}'.")
+    else:
+        print(f"\nAll temperatures complete. Combined snapshots saved to '{save_path}'.")
     return save_path
 
 
-def run_from_params(params, progress_callback=None):
+def run_from_params(params, progress_callback=None, stop_requested=None):
     parser = build_parser()
     cli_args = [f"{key}={value}" for key, value in params.items()]
     args = parser.parse_args(cli_args)
-    return run_simulation(args, progress_callback=progress_callback)
+    return run_simulation(args, progress_callback=progress_callback, stop_requested=stop_requested)
 
 
 def main():

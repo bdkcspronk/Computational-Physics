@@ -1,7 +1,6 @@
 # ising_viz.py
 
 import os
-import sys
 # Hide pygame support prompt before importing
 os.environ["PYGAME_HIDE_SUPPORT_PROMPT"] = "1"
 
@@ -24,6 +23,7 @@ from OpenGL.GL.shaders import compileProgram, compileShader
 import math
 import time
 import argparse
+from ising_initialization import resolve_open_dir
 
 # ================================
 # Visualization parameters
@@ -36,18 +36,6 @@ COLOR_SPIN_DOWN = (0.3, 0.5, 0.5)
 COLOR_BACKGROUND = (0.1, 0.1, 0.1, 1.0)
 
 PLAYBACK_FPS = 50  # how fast to advance snapshots per second
-
-def get_runtime_base_dir():
-    if getattr(sys, "frozen", False):
-        return os.path.dirname(os.path.abspath(sys.executable))
-    return os.path.dirname(os.path.abspath(__file__))
-
-
-def resolve_open_dir(open_dir):
-    if os.path.isabs(open_dir):
-        return open_dir
-    return os.path.join(get_runtime_base_dir(), open_dir)
-
 
 # ================================
 # OpenGL visualizer

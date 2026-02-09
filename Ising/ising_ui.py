@@ -5,6 +5,7 @@ import multiprocessing
 import threading
 import os
 import ising_plots as plots
+from ising_initialization import ensure_open_dir, resolve_open_dir, resolve_snapshot_file
 import ising_sim
 import ising_viz
 
@@ -13,6 +14,7 @@ import ising_viz
 # ------------------------
 stop_flag = False
 simulation_done = False
+sim_stop_event = None
 progress_var = None
 plot_energy_btn = None
 plot_mag_btn = None
@@ -25,16 +27,7 @@ temp_widgets = []
 temps = []
 temp_bar_frame = None
 
-def get_runtime_base_dir():
-    import sys
-    if getattr(sys, "frozen", False):
-        return os.path.dirname(os.path.abspath(sys.executable))
-    return os.path.dirname(os.path.abspath(__file__))
-
-def get_output_dir(folder_name="ising_sim"):
-    return os.path.join(get_runtime_base_dir(), folder_name)
-
-file_path = os.path.join(get_output_dir(), "snapshots.npz")
+file_path = resolve_snapshot_file()
 
 
 # ------------------------
@@ -89,22 +82,25 @@ def get_snapshot_keys(file_path):
     if not os.path.exists(file_path):
         return []
 
-    data = np.load(file_path, allow_pickle=True)
-    keys = []
+    with np.load(file_path, allow_pickle=True) as data:
+        numeric_keys = []
 
-    for key in data.files:
-        # temperature keys are numeric
-        try:
-            float(key)
-            keys.append(key)
-        except ValueError:
-            # skip non-numeric keys
-            continue
-    # fallback for single-temperature runs
-    if not keys and 'snapshots' in data.files:
-        keys.append('snapshots')
+        for key in data.files:
+            # temperature keys are numeric
+            try:
+                numeric_keys.append((float(key), key))
+            except ValueError:
+                # skip non-numeric keys
+                continue
 
-    return sorted(keys, key=lambda x: float(x))
+        if numeric_keys:
+            return [key for _, key in sorted(numeric_keys, key=lambda item: item[0])]
+
+        # fallback for single-temperature runs
+        if 'snapshots' in data.files:
+            return ['snapshots']
+
+    return []
 
 # ------------------------
 # Visualization function
@@ -175,14 +171,12 @@ def build_viz_buttons(file_path, parent_frame):
 # Simulation thread
 # ------------------------
 def run_simulation_thread(params):
-    global stop_flag, simulation_done
+    global stop_flag, simulation_done, sim_stop_event
     stop_flag = False
     simulation_done = False
+    sim_stop_event = threading.Event()
     global cpu_workers
     cpu_workers = None
-
-    output_dir = params["--output"]
-    os.makedirs(output_dir, exist_ok=True)
 
     current_run = 0
 
@@ -211,7 +205,11 @@ def run_simulation_thread(params):
 
             root.after(0, update)
 
-    ising_sim.run_from_params(params, progress_callback=handle_progress)
+    ising_sim.run_from_params(
+        params,
+        progress_callback=handle_progress,
+        stop_requested=lambda: stop_flag or (sim_stop_event is not None and sim_stop_event.is_set())
+    )
 
     def finish_ui():
         for i in range(len(temp_widgets)):
@@ -227,9 +225,6 @@ def run_simulation_thread(params):
 
     root.after(0, lambda: build_viz_buttons(file_path, viz_buttons_frame))
 
-    plot_energy_btn.config(state="normal")
-    plot_mag_btn.config(state="normal")
-    plot_thermo_btn.config(state="normal")
 
 def start_simulation(entries):
     params = {
@@ -254,7 +249,7 @@ def start_simulation(entries):
         "--stop_fully_mag": "ON" if entries["Stop if fully magnetized (ON/OFF)"].get() else "OFF",
         "--fully_mag_limit": entries["Fully magnetization limit"].get(),
         "--save": entries["Save Every N Steps"].get(),
-        "--output": get_output_dir()
+        "--output": ensure_open_dir()
     }
 
     if entries["Random Seed (optional)"].get().strip():
@@ -279,14 +274,18 @@ def start_simulation(entries):
 
 
 def stop_simulation():
-    global stop_flag
+    global stop_flag, sim_stop_event
     stop_flag = True
+    if sim_stop_event is not None:
+        sim_stop_event.set()
+    ising_sim.request_stop()
+    run_var.set("Stopping simulation...")
 
 def visualize_simulation():
     if simulation_done:
         threading.Thread(
             target=ising_viz.run_visualizer,
-            args=(get_output_dir(),),
+            args=(resolve_open_dir(),),
             daemon=True
         ).start()
 
