@@ -3,9 +3,9 @@
 Collection of python scripts and applications related to computational physics.  
 Contains simulations and analysis tools for physical models (e.g., 3D Ising model).
 
-## Running the Application (Prebuilt Executable)
+## Running the applications (Prebuilt Executable)
 
-A standalone executable is provided.
+With some projects a standalone executable is provided.
 
 No Python installation is required.
 
