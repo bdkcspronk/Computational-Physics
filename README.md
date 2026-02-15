@@ -15,15 +15,3 @@ No Python installation is required.
 Note:
 - Windows SmartScreen may show a warning the first time.
 - The executable was built using PyInstaller (`--onefile`).
-
-## Running from Source
-
-If you want to modify or run the code directly:
-
-### Requirements
-- Python 3.x
-- numpy
-- matplotlib
-- seaborn
-- pygame
-- OpenGL (PyOpenGL)
